@@ -1,0 +1,593 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FLO Research Interview</title>
+<!--
+  ============================================================
+  GOOGLE SHEETS SETUP (one-time, ~5 min)
+  ============================================================
+  1. Create a Google Sheet named "FLO Interview Data"
+  2. Create two tabs: "Scores" and "Transcripts"
+  3. Scores headers (Row 1):
+     Timestamp | Interview_ID | Role | FLO_Score | ITA_Score | EnvPref_Score | Mechanism_Evidence | Confidence | Notes | Duration_Minutes | Response_Count
+  4. Transcripts headers (Row 1):
+     Interview_ID | Turn | Role | Module | Content | Timestamp
+  5. Extensions > Apps Script — paste the code from google_apps_script.js
+  6. Deploy > New deployment > Web app > Anyone > Deploy
+  7. Copy the URL → paste below where it says PASTE_YOUR_URL_HERE
+  ============================================================
+-->
+<style>
+:root {
+  --primary: #2563eb;
+  --primary-light: #dbeafe;
+  --bg: #f8fafc;
+  --card: #ffffff;
+  --text: #1e293b;
+  --text-light: #64748b;
+  --border: #e2e8f0;
+  --agent-bg: #f1f5f9;
+  --user-bg: #2563eb;
+  --user-text: #ffffff;
+  --success: #16a34a;
+  --radius: 12px;
+}
+* { margin: 0; padding: 0; box-sizing: border-box; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  background: var(--bg); color: var(--text);
+  height: 100vh; display: flex; flex-direction: column;
+}
+.header {
+  background: var(--card); border-bottom: 1px solid var(--border);
+  padding: 16px 24px; display: flex; align-items: center; justify-content: space-between; flex-shrink: 0;
+}
+.header-left { display: flex; align-items: center; gap: 12px; }
+.header-icon {
+  width: 40px; height: 40px; background: var(--primary); border-radius: 10px;
+  display: flex; align-items: center; justify-content: center; color: white; font-size: 20px;
+}
+.header h1 { font-size: 18px; font-weight: 600; }
+.header p { font-size: 13px; color: var(--text-light); }
+.header-actions { display: flex; gap: 8px; }
+.btn {
+  padding: 8px 16px; border-radius: 8px; border: 1px solid var(--border);
+  background: var(--card); color: var(--text); font-size: 13px; cursor: pointer;
+  transition: all .15s; font-family: inherit;
+}
+.btn:hover { background: var(--bg); }
+.btn-success { background: var(--success); color: white; border-color: var(--success); }
+.progress-bar {
+  background: var(--card); border-bottom: 1px solid var(--border);
+  padding: 10px 24px; display: flex; align-items: center; gap: 8px; flex-shrink: 0;
+}
+.progress-step { flex: 1; height: 6px; background: var(--border); border-radius: 3px; transition: background .3s; }
+.progress-step.active { background: var(--primary); }
+.progress-step.done { background: var(--success); }
+.progress-label { font-size: 11px; color: var(--text-light); white-space: nowrap; min-width: 60px; text-align: center; }
+.progress-label.active { color: var(--primary); font-weight: 600; }
+.chat-container { flex: 1; overflow-y: auto; padding: 24px; display: flex; flex-direction: column; gap: 16px; }
+.message { display: flex; gap: 10px; max-width: 80%; animation: fadeIn .3s ease; }
+@keyframes fadeIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+.message.agent { align-self: flex-start; }
+.message.user { align-self: flex-end; flex-direction: row-reverse; }
+.avatar {
+  width: 32px; height: 32px; border-radius: 50%;
+  display: flex; align-items: center; justify-content: center; font-size: 14px; flex-shrink: 0;
+}
+.agent .avatar { background: var(--primary-light); color: var(--primary); }
+.user .avatar { background: var(--user-bg); color: var(--user-text); }
+.bubble { padding: 12px 16px; border-radius: var(--radius); line-height: 1.55; font-size: 14.5px; }
+.agent .bubble { background: var(--agent-bg); border-bottom-left-radius: 4px; }
+.user .bubble { background: var(--user-bg); color: var(--user-text); border-bottom-right-radius: 4px; }
+.typing-indicator {
+  display: flex; gap: 4px; padding: 12px 16px;
+  background: var(--agent-bg); border-radius: var(--radius); border-bottom-left-radius: 4px;
+}
+.typing-dot { width: 8px; height: 8px; background: var(--text-light); border-radius: 50%; animation: bounce 1.4s infinite; }
+.typing-dot:nth-child(2) { animation-delay: .2s; }
+.typing-dot:nth-child(3) { animation-delay: .4s; }
+@keyframes bounce { 0%,80%,100%{transform:translateY(0)} 40%{transform:translateY(-6px)} }
+.quick-replies { display: flex; gap: 8px; flex-wrap: wrap; align-self: flex-end; max-width: 80%; animation: fadeIn .3s ease; }
+.quick-reply {
+  padding: 8px 16px; border: 1px solid var(--primary); color: var(--primary);
+  border-radius: 20px; background: white; cursor: pointer; font-size: 13px;
+  transition: all .15s; font-family: inherit;
+}
+.quick-reply:hover { background: var(--primary); color: white; }
+.input-area {
+  background: var(--card); border-top: 1px solid var(--border);
+  padding: 16px 24px; display: flex; gap: 12px; flex-shrink: 0;
+}
+.input-area textarea {
+  flex: 1; padding: 12px 16px; border: 1px solid var(--border); border-radius: var(--radius);
+  font-size: 14.5px; font-family: inherit; resize: none; outline: none;
+  transition: border-color .15s; min-height: 48px; max-height: 120px;
+}
+.input-area textarea:focus { border-color: var(--primary); }
+.send-btn {
+  width: 48px; height: 48px; background: var(--primary); color: white; border: none;
+  border-radius: var(--radius); cursor: pointer; font-size: 18px;
+  display: flex; align-items: center; justify-content: center; transition: opacity .15s;
+}
+.send-btn:disabled { opacity: .4; cursor: not-allowed; }
+.send-btn:hover:not(:disabled) { opacity: .9; }
+.scores-panel {
+  background: var(--card); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 20px; margin: 8px 0; max-width: 80%; align-self: flex-start; animation: fadeIn .3s ease;
+}
+.scores-panel h3 { font-size: 15px; margin-bottom: 12px; color: var(--primary); }
+.score-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px,1fr)); gap: 12px; }
+.score-card { background: var(--bg); border-radius: 8px; padding: 12px; text-align: center; }
+.score-card .label { font-size: 12px; color: var(--text-light); margin-bottom: 4px; }
+.score-card .value { font-size: 24px; font-weight: 700; color: var(--primary); }
+.score-card .value.green { color: var(--success); }
+.submit-status { margin-top:12px; padding:10px 14px; border-radius:8px; font-size:13px; display:flex; align-items:center; gap:8px; }
+.submit-status.success { background:#dcfce7; color:#166534; }
+.submit-status.error { background:#fee2e2; color:#991b1b; }
+.submit-status.pending { background:#fef3c7; color:#92400e; }
+@media (max-width:600px) {
+  .message{max-width:95%} .header{padding:12px 16px} .chat-container{padding:16px}
+  .input-area{padding:12px 16px} .header h1{font-size:15px} .header-actions .btn span{display:none}
+}
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-left">
+    <div class="header-icon">R</div>
+    <div>
+      <h1>FLO Research Interview</h1>
+      <p id="interviewId">Loading...</p>
+    </div>
+  </div>
+  <div class="header-actions">
+    <button class="btn" onclick="downloadTranscript()" id="btnTranscript" style="display:none"><span>Transcript</span> &darr;</button>
+    <button class="btn btn-success" onclick="downloadScores()" id="btnScores" style="display:none"><span>Scores CSV</span> &darr;</button>
+    <button class="btn" onclick="confirmRestart()">New</button>
+  </div>
+</div>
+
+<div class="progress-bar">
+  <div class="progress-label" id="plConsent">Consent</div><div class="progress-step" id="psConsent"></div>
+  <div class="progress-label" id="plA">About You</div><div class="progress-step" id="psA"></div>
+  <div class="progress-label" id="plB">Time Horizon</div><div class="progress-step" id="psB"></div>
+  <div class="progress-label" id="plC">Future Others</div><div class="progress-step" id="psC"></div>
+  <div class="progress-label" id="plD">Environment</div><div class="progress-step" id="psD"></div>
+</div>
+
+<div class="chat-container" id="chat"></div>
+
+<div class="input-area" id="inputArea">
+  <textarea id="userInput" placeholder="Type your response..." rows="1"
+    onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendMessage();}"></textarea>
+  <button class="send-btn" onclick="sendMessage()">&#9654;</button>
+</div>
+
+<script>
+// =========================================================================
+// CONFIG — Paste your Google Apps Script URL here
+// =========================================================================
+const GOOGLE_SCRIPT_URL = 'PASTE_YOUR_URL_HERE';
+
+// =========================================================================
+// State
+// =========================================================================
+const IV = {
+  id: 'INT-' + new Date().toISOString().replace(/[-:T]/g,'').slice(0,15),
+  startTime: new Date(),
+  transcript: [],
+  phase: 'consent',
+  scores: null,
+  responseCount: 0,
+  role: null,       // 'student','manager','executive','researcher','other'
+  roleRaw: '',
+  gender: '',
+};
+document.getElementById('interviewId').textContent = 'ID: ' + IV.id;
+
+// =========================================================================
+// Role detection
+// =========================================================================
+function detectRole(text) {
+  const t = text.toLowerCase();
+  if (/student|undergrad|graduate|phd|master|bachelor|studying|university|college/.test(t)) return 'student';
+  if (/ceo|cfo|coo|cto|chief|founder|owner|director|vp |vice president|president|board/.test(t)) return 'executive';
+  if (/manager|supervisor|team lead|head of|department head|senior|mid.?level/.test(t)) return 'manager';
+  if (/researcher|professor|academ|scientist|lecturer|faculty|postdoc/.test(t)) return 'researcher';
+  return 'other';
+}
+
+// =========================================================================
+// Role-adaptive question bank
+// =========================================================================
+function getQuestions(role) {
+  // --- MODULE A: Warm-up (same for all, one Q at a time) ---
+  const A = [
+    { q: "Great, thank you for your consent. Let\u2019s begin.\n\nWhat is your current role or occupation?\n\n(For example: student, manager, CEO, researcher, engineer, etc.)",
+      followUps: [], special: 'role' },
+    { q: "Thank you. And how do you identify in terms of gender?\n\n(For example: male, female, non-binary, or prefer not to say)",
+      followUps: [], special: 'gender', quickReplies: ['Male','Female','Non-binary','Prefer not to say'] },
+    // Remaining Q's are role-adaptive — inserted after role detection
+  ];
+
+  // --- Warm-up Q2/Q3 by role ---
+  const A_extra = {
+    student: [
+      { q: "What are you currently studying, and what year are you in?", followUps: ['What drew you to this field of study?'] },
+      { q: "When you think about your future career, what kind of decisions do you imagine yourself making?\n\n(For example: choosing between industries, balancing salary vs. purpose, etc.)", followUps: [] },
+    ],
+    manager: [
+      { q: "How many years of management experience do you have?", followUps: ['How large is the team or budget you manage?'] },
+      { q: "What kind of decisions do you make most often in your role?\n\n(For example: hiring, budgeting, product strategy, supplier selection, etc.)", followUps: [] },
+    ],
+    executive: [
+      { q: "How long have you been in your current leadership position?", followUps: ['What industry is your organization in?'] },
+      { q: "What are the most significant strategic decisions you face in your role?\n\n(For example: M&A, market entry, capital allocation, organizational restructuring, etc.)", followUps: [] },
+    ],
+    researcher: [
+      { q: "What is your area of research, and how long have you been in academia?", followUps: ['Are you involved in any administrative or policy decisions at your institution?'] },
+      { q: "What kinds of decisions do you make that have long-term consequences?\n\n(For example: research direction, grant priorities, mentoring the next generation, etc.)", followUps: [] },
+    ],
+    other: [
+      { q: "How long have you been in your current role?", followUps: ['What industry or sector do you work in?'] },
+      { q: "What kind of decisions do you make in your work that could have long-term impact?\n\n(For example: financial planning, project direction, resource allocation, etc.)", followUps: [] },
+    ],
+  };
+
+  // --- MODULE B: Forward-Looking Orientation (role-adaptive) ---
+  const B = {
+    student: [
+      { q: "Now I\u2019d like to understand how you think about the future.\n\nImagine you have two options after graduation: **Option A** offers a high-paying job right away, but limited growth. **Option B** pays less initially but builds valuable skills for the next 10\u201315 years. How would you choose?",
+        followUps: ['What factors matter most to you when thinking about your future career?','Have you ever turned down a short-term benefit for something better in the long run?'] },
+      { q: "When you make important life decisions \u2014 like choosing a major, an internship, or a job \u2014 how far into the future do you typically think?",
+        followUps: ['Do you tend to plan years ahead, or focus on what\u2019s right in front of you?'] },
+      { q: "How much do you think about what your life will look like **10 or 20 years from now** when making decisions today?",
+        followUps: [] },
+    ],
+    manager: [
+      { q: "Now I\u2019d like to explore how you think about time horizons in decision-making.\n\nImagine you have two project options: **Project A** delivers strong results this quarter. **Project B** shows modest results now but builds a major competitive advantage over 5\u201310 years. How would you evaluate these?",
+        followUps: ['Can you share an example where you chose long-term value over short-term results?','What pressures do you face to focus on short-term performance?'] },
+      { q: "When you plan or make strategic recommendations, how far into the future do you typically think?",
+        followUps: ['Does your organization reward long-term thinking, or mostly short-term results?'] },
+      { q: "How much do you care about outcomes that will only materialize **after you\u2019ve moved on** from your current position?",
+        followUps: [] },
+    ],
+    executive: [
+      { q: "Now I\u2019d like to explore how you think about strategic time horizons.\n\nImagine your firm has two investment options: **Option A** yields high returns in 1 year. **Option B** yields moderate returns but creates significant competitive advantage in 10 years. How would you evaluate these?",
+        followUps: ['How do you balance quarterly pressures with long-term vision?','Can you give an example of a bet you made on the long term?'] },
+      { q: "When setting corporate strategy, how far into the future do you typically project outcomes?",
+        followUps: ['How do you communicate long-term vision to your board or investors?'] },
+      { q: "How much weight do you give to outcomes that will materialize **after you have left** your current position?",
+        followUps: ['Do you think about your legacy as a leader?'] },
+    ],
+    researcher: [
+      { q: "Now I\u2019d like to understand how you think about time horizons.\n\nImagine two research directions: **Path A** leads to quick publications in the next 1\u20132 years. **Path B** tackles a harder problem with potentially transformative impact in 10\u201320 years. How would you choose?",
+        followUps: ['How does tenure or funding pressure affect your time horizon?','Have you ever pursued a long-shot project despite short-term career risks?'] },
+      { q: "When deciding on research priorities, how far into the future do you consider the impact of your work?",
+        followUps: ['Do you think about how your research will be used by the next generation of scholars?'] },
+      { q: "How much do you care about outcomes from your work that you may **never personally see**?",
+        followUps: [] },
+    ],
+    other: [
+      { q: "Now I\u2019d like to explore how you think about the future.\n\nImagine two options: **Option A** gives you a good reward right now. **Option B** requires patience but creates much greater value in 5\u201310 years. How would you decide?",
+        followUps: ['Can you think of a time you chose the long-term path over the short-term one?'] },
+      { q: "When you make important decisions, how far into the future do you typically think about the consequences?",
+        followUps: [] },
+      { q: "How much do you care about outcomes that will happen **long after** your current situation has changed?",
+        followUps: [] },
+    ],
+  };
+
+  // --- MODULE C: Inter-Temporal Altruism (role-adaptive) ---
+  const C = {
+    student: [
+      { q: "Now let\u2019s talk about how you think about other people\u2019s well-being across time.\n\nImagine a campus policy that would **increase your tuition by 5%** this year, but fund scholarships for students **20 years from now** who couldn\u2019t otherwise afford college. Would you support it?",
+        followUps: ['Would your answer change if those future students were in your own family versus strangers?','What if the benefit was for students in a different country?'] },
+      { q: "Some people believe we should focus on solving **today\u2019s problems** first. Others feel we have a strong **duty to protect the well-being of future generations**. Where do you stand?",
+        followUps: ['Has anything in your education shaped how you think about responsibility to the future?'] },
+    ],
+    manager: [
+      { q: "Now let\u2019s explore how you think about decisions that affect people across different time periods.\n\nSuppose a new policy would **reduce your department\u2019s budget by 5%** this year, but ensure **better working conditions for employees 20 years from now**. How would you approach this decision?",
+        followUps: ['Would your answer change if those future employees were your own children versus strangers?','How do you weigh the interests of people who aren\u2019t here yet?'] },
+      { q: "Some managers argue their **primary duty is to current stakeholders**. Others believe they also have a **responsibility to future stakeholders** who don\u2019t yet exist. Where do you stand?",
+        followUps: ['Has your view on this changed over your career?'] },
+    ],
+    executive: [
+      { q: "Now let\u2019s explore how you think about decisions that affect people across different time periods.\n\nSuppose a policy would **reduce your firm\u2019s profits by 5%** this year but ensure **cleaner air for the local community 20 years from now**. How would you approach this?",
+        followUps: ['Would your answer change if the beneficiaries were your own descendants versus anonymous future citizens?','How do you weigh the interests of people who aren\u2019t born yet?'] },
+      { q: "Some leaders argue their **primary duty is to current shareholders**. Others believe they have a **responsibility to stakeholders who don\u2019t yet exist**. Where do you stand?",
+        followUps: ['How do you reconcile fiduciary duties with broader social responsibilities?'] },
+    ],
+    researcher: [
+      { q: "Now let\u2019s think about responsibility across time.\n\nImagine your university could **cut current research funding by 5%** to create an endowment that supports early-career researchers **20 years from now**. Would you support this?",
+        followUps: ['Would your answer change if those future researchers were in your own field versus a different one?','Do you think about the next generation of scholars when choosing your research agenda?'] },
+      { q: "Some argue that researchers should focus on **immediate, applied impact**. Others believe creating **foundational knowledge for future generations** is equally important. Where do you stand?",
+        followUps: ['Do you see your role as a researcher as having a duty to the future?'] },
+    ],
+    other: [
+      { q: "Now let\u2019s think about how you consider other people\u2019s well-being across time.\n\nImagine a policy that would **cost you 5% of your income** this year but create significant benefits for people **20 years from now**. Would you support it?",
+        followUps: ['Would your answer change if those future people were your own family versus strangers?'] },
+      { q: "Some people believe we should focus on **today\u2019s problems first**. Others feel we have a strong **obligation to future generations**. Where do you stand?",
+        followUps: [] },
+    ],
+  };
+
+  // --- MODULE D: Environmental Preference (role-adaptive) ---
+  const D = {
+    student: [
+      { q: "Now let\u2019s talk about environmental sustainability.\n\nAs a consumer, would you be willing to **pay 15\u201320% more** for a product if you knew it was sustainably produced and better for the environment? Why or why not?",
+        followUps: ['Do you actively look for eco-friendly or sustainable options when shopping?','Have you ever changed a habit (diet, transportation, recycling) for environmental reasons?'] },
+      { q: "When you think about environmental issues like climate change, how much do you consider the impact on **people living 50 years from now**?",
+        followUps: ['Do you see protecting the environment as a personal obligation, or more of a government/corporate responsibility?'] },
+      { q: "Do you see environmental protection as a form of **obligation to future generations**, or primarily as something that benefits **your own quality of life today**?",
+        followUps: [] },
+      { q: "Is there anything else you\u2019d like to add about how your **thinking about the future** shapes your **environmental attitudes or choices**?",
+        followUps: [] },
+    ],
+    manager: [
+      { q: "Now let\u2019s talk about environmental sustainability.\n\nHas your team or department made any **environmental decisions** \u2014 such as choosing greener suppliers, reducing waste, or adopting sustainable practices \u2014 even when they **cost more** in the short term?",
+        followUps: ['What motivated those decisions \u2014 regulation, values, or business strategy?','How did you justify the extra cost to your leadership?'] },
+      { q: "When you think about environmental sustainability at work, how much do you consider the impact on **people living 50 years from now**?",
+        followUps: ['Do you see a connection between your long-term thinking and your environmental priorities?'] },
+      { q: "Do you see environmental responsibility as a form of **obligation to the future**, or primarily as a **smart business decision today**?",
+        followUps: [] },
+      { q: "Is there anything else you\u2019d like to add about how your **long-term perspective** influences your **environmental decisions** at work?",
+        followUps: [] },
+    ],
+    executive: [
+      { q: "Now let\u2019s turn to environmental sustainability.\n\nHas your firm recently made any **environmental investments** \u2014 such as carbon reduction, renewable energy, or ESG commitments \u2014 that are unlikely to pay off within the **typical executive tenure**? What motivated those decisions?",
+        followUps: ['Were those driven more by regulation, investor pressure, or personal values?','How did you justify them to shareholders focused on quarterly results?'] },
+      { q: "When setting environmental strategy, how much do you consider the impact on **people living 50 years from now**?",
+        followUps: ['How does your concern for future generations shape your firm\u2019s environmental policies?'] },
+      { q: "Do you see environmental protection as a form of **obligation to the future**, or primarily as a **business opportunity today**?",
+        followUps: [] },
+      { q: "Is there anything else you\u2019d like to add about how your **long-term vision** shapes your firm\u2019s **environmental commitments**?",
+        followUps: [] },
+    ],
+    researcher: [
+      { q: "Now let\u2019s talk about environmental sustainability.\n\nIn your research or institutional role, have you ever advocated for **environmentally sustainable practices** \u2014 such as green labs, sustainable fieldwork, or prioritizing climate-related research \u2014 even when it was **less convenient or more costly**?",
+        followUps: ['Do you think academia has a special responsibility to lead on sustainability?','Has environmental concern influenced your choice of research topics?'] },
+      { q: "When you think about environmental challenges, how much do you consider the impact on **people living 50 years from now**?",
+        followUps: ['Do you see a connection between your research\u2019s long-term vision and environmental responsibility?'] },
+      { q: "Do you see environmental protection as a form of **obligation to future generations**, or primarily as something that benefits **society today**?",
+        followUps: [] },
+      { q: "Is there anything else you\u2019d like to add about how your **long-term thinking** shapes your **environmental attitudes**?",
+        followUps: [] },
+    ],
+    other: [
+      { q: "Now let\u2019s talk about environmental sustainability.\n\nWould you be willing to **pay more** for products or services that are better for the environment? Have you ever made a choice like that?",
+        followUps: ['What motivates your environmental choices \u2014 personal values, social pressure, or practical benefits?'] },
+      { q: "When you think about environmental problems like climate change, how much do you consider the impact on **people living 50 years from now**?",
+        followUps: [] },
+      { q: "Do you see protecting the environment as an **obligation to future generations**, or mainly as something that benefits **people alive today**?",
+        followUps: [] },
+      { q: "Is there anything else you\u2019d like to add about how your **thinking about the future** connects to your **environmental views**?",
+        followUps: [] },
+    ],
+  };
+
+  return { A, A_extra, B: B[role] || B.other, C: C[role] || C.other, D: D[role] || D.other };
+}
+
+// =========================================================================
+// Engine
+// =========================================================================
+let QBank = null;
+let moduleQuestions = [];
+let qIdx = 0;
+let usedFU = new Set();
+let fuCount = 0;
+let isTyping = false;
+let roleAsked = false; // after first A question, we detect role
+
+const chatEl = document.getElementById('chat');
+const inputEl = document.getElementById('userInput');
+
+function md(text) {
+  return text.replace(/\*\*(.*?)\*\*/g,'<strong>$1</strong>').replace(/\*(.*?)\*/g,'<em>$1</em>').replace(/\n/g,'<br>');
+}
+function addMsg(role, text) {
+  const d = document.createElement('div'); d.className = 'message ' + role;
+  d.innerHTML = `<div class="avatar">${role==='agent'?'R':'Y'}</div><div class="bubble">${md(text)}</div>`;
+  chatEl.appendChild(d); chatEl.scrollTop = chatEl.scrollHeight;
+  IV.transcript.push({ role: role==='agent'?'interviewer':'interviewee', content: text, timestamp: new Date().toISOString(), module: IV.phase });
+}
+function addQR(opts) {
+  const d = document.createElement('div'); d.className='quick-replies'; d.id='quickReplies';
+  opts.forEach(o => { const b=document.createElement('button'); b.className='quick-reply'; b.textContent=o; b.onclick=()=>{d.remove();handle(o);}; d.appendChild(b); });
+  chatEl.appendChild(d); chatEl.scrollTop = chatEl.scrollHeight;
+}
+function showTyp() { const d=document.createElement('div');d.className='message agent';d.id='typ';d.innerHTML=`<div class="avatar">R</div><div class="typing-indicator"><div class="typing-dot"></div><div class="typing-dot"></div><div class="typing-dot"></div></div>`;chatEl.appendChild(d);chatEl.scrollTop=chatEl.scrollHeight; }
+function hideTyp() { const e=document.getElementById('typ');if(e)e.remove(); }
+function say(text,ms) { return new Promise(r=>{isTyping=true;showTyp();setTimeout(()=>{hideTyp();addMsg('agent',text);isTyping=false;r();},ms||Math.min(800+text.length*10,2500));}); }
+function wait(ms) { return new Promise(r=>setTimeout(r,ms)); }
+
+function updateProg() {
+  const ps=['consent','A','B','C','D'], cur=ps.indexOf(IV.phase);
+  ps.forEach((p,i)=>{
+    const id=p==='consent'?'Consent':p;
+    const s=document.getElementById('ps'+id),l=document.getElementById('pl'+id);
+    if(!s)return; s.className='progress-step'; l.className='progress-label';
+    if(i<cur)s.classList.add('done'); else if(i===cur){s.classList.add('active');l.classList.add('active');}
+  });
+  if(IV.phase==='done'||IV.phase==='closing') ps.forEach(p=>{const s=document.getElementById('ps'+(p==='consent'?'Consent':p));if(s)s.className='progress-step done';});
+}
+
+function isShort(t){return t.trim().split(/\s+/).length<15;}
+function pickFU(fus){const a=fus.filter((_,i)=>!usedFU.has(i));if(!a.length)return null;const i=fus.indexOf(a[Math.floor(Math.random()*a.length)]);usedFU.add(i);return fus[i];}
+function mirror(){const p=["Thank you for sharing that.","That\u2019s a really thoughtful response.","I appreciate your openness.","That\u2019s very helpful.","Interesting perspective \u2014 thank you.","That paints a clear picture."];return p[Math.floor(Math.random()*p.length)];}
+
+async function nextQ() {
+  qIdx++; usedFU=new Set(); fuCount=0;
+  if (qIdx >= moduleQuestions.length) { await nextModule(); }
+  else {
+    await say(moduleQuestions[qIdx].q);
+    // Show quick reply buttons if the question defines them
+    if (moduleQuestions[qIdx].quickReplies) {
+      addQR(moduleQuestions[qIdx].quickReplies);
+    }
+  }
+}
+
+async function nextModule() {
+  const order=['A','B','C','D'], idx=order.indexOf(IV.phase);
+  if (idx < order.length-1) {
+    IV.phase = order[idx+1]; updateProg();
+    moduleQuestions = QBank[IV.phase]; qIdx=0; usedFU=new Set(); fuCount=0;
+    await say(moduleQuestions[0].q);
+  } else { await finish(); }
+}
+
+async function finish() {
+  IV.phase='closing'; updateProg();
+  await say("Thank you very much for your time and thoughtful responses. Your insights will contribute to important research on sustainable management and forward-looking decision-making.\n\nThis concludes our interview. Your responses have been securely recorded.\n\nWe truly appreciate your participation.", 2000);
+  IV.phase='done'; computeScores(); showScoresUI(); await submitData();
+  document.getElementById('inputArea').style.display='none';
+  document.getElementById('btnTranscript').style.display='';
+  document.getElementById('btnScores').style.display='';
+}
+
+function computeScores() {
+  const all = IV.transcript.filter(t=>t.role==='interviewee').map(t=>t.content.toLowerCase()).join(' ');
+  const fKW=['long-term','long term','future','10 years','legacy','next generation','decades','vision','sustainable','horizon','forward','plan ahead','years from now','career','invest'];
+  const iKW=['future generations','generations','descendants','obligation','responsibility','sacrifice','altruism','unborn','children','grandchildren','community','society','duty','stakeholders','others','empathy'];
+  const eKW=['environment','climate','sustainability','carbon','emissions','green','renewable','clean','pollution','eco','planet','nature','net zero','esg','recycle','organic','pay more','higher price'];
+  function sc(kw){let h=0;kw.forEach(k=>{if(all.includes(k))h++;});return Math.min(7,Math.max(1,Math.round(1+(h/kw.length)*6)));}
+  const f=sc(fKW),i=sc(iKW),e=sc(eKW);
+  IV.scores={FLO_Score:f,ITA_Score:i,EnvPref_Score:e,Confidence:3,Notes:'Auto-scored. Manual review recommended.'};
+}
+
+function showScoresUI() {
+  const s=IV.scores, p=document.createElement('div'); p.className='scores-panel';
+  p.innerHTML=`<h3>Interview Summary Scores</h3><div class="score-grid">
+    <div class="score-card"><div class="label">FLO Score</div><div class="value">${s.FLO_Score}/7</div></div>
+    <div class="score-card"><div class="label">ITA Score</div><div class="value">${s.ITA_Score}/7</div></div>
+    <div class="score-card"><div class="label">EnvPref Score</div><div class="value">${s.EnvPref_Score}/7</div></div>
+  </div><div id="submitStatus" class="submit-status pending">Submitting data to research database...</div>`;
+  chatEl.appendChild(p); chatEl.scrollTop=chatEl.scrollHeight;
+}
+
+async function submitData() {
+  const el=document.getElementById('submitStatus');
+  if(!GOOGLE_SCRIPT_URL||GOOGLE_SCRIPT_URL==='PASTE_YOUR_URL_HERE'){el.className='submit-status error';el.textContent='Google Sheets not configured. Please download files manually.';return;}
+  const dur=Math.round((new Date()-IV.startTime)/60000);
+  try{
+    await fetch(GOOGLE_SCRIPT_URL,{method:'POST',mode:'no-cors',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({timestamp:new Date().toISOString(),interview_id:IV.id,role:IV.role,gender:IV.gender,FLO_Score:IV.scores.FLO_Score,ITA_Score:IV.scores.ITA_Score,EnvPref_Score:IV.scores.EnvPref_Score,Confidence:IV.scores.Confidence,Notes:IV.scores.Notes,duration_minutes:dur,response_count:IV.responseCount,transcript:IV.transcript})
+    });
+    el.className='submit-status success';el.textContent='Data submitted successfully. Thank you!';
+  }catch(e){el.className='submit-status error';el.textContent='Submission failed. Please download files manually.';}
+}
+
+// =========================================================================
+// Main handler
+// =========================================================================
+async function handle(text) {
+  addMsg('user', text);
+  IV.responseCount++;
+
+  // -- Consent --
+  if (IV.phase === 'consent') {
+    if (/no|decline|refuse|don't|do not/i.test(text)) {
+      await say('Thank you for considering participation. Your decision is fully respected. You may close this page.');
+      IV.phase='done'; document.getElementById('inputArea').style.display='none'; return;
+    }
+    if (/yes|consent|agree|proceed|sure|ok|okay/i.test(text)) {
+      IV.phase='A'; updateProg();
+      // Start with role question (first Q of Module A)
+      QBank = getQuestions('other'); // temporary, will reload after role detection
+      moduleQuestions = QBank.A; qIdx = 0; roleAsked = true;
+      await say(moduleQuestions[0].q);
+      return;
+    }
+    await say('I understand. Your participation is entirely voluntary and all responses are anonymized. Would you like to proceed?');
+    addQR(['Yes, I consent','No, I do not consent']);
+    return;
+  }
+
+  // -- Module A: handle special questions (role, gender) --
+  if (IV.phase === 'A' && moduleQuestions[qIdx] && moduleQuestions[qIdx].special) {
+    const special = moduleQuestions[qIdx].special;
+
+    if (special === 'role') {
+      IV.role = detectRole(text);
+      IV.roleRaw = text;
+      // Reload question bank with detected role
+      QBank = getQuestions(IV.role);
+      // Rebuild Module A: role Q (done) + gender Q + role-specific extras
+      moduleQuestions = [QBank.A[0], QBank.A[1], ...(QBank.A_extra[IV.role] || QBank.A_extra.other)];
+
+      await say(mirror());
+      await wait(400);
+      await nextQ(); // go to gender question
+      return;
+    }
+
+    if (special === 'gender') {
+      IV.gender = text.trim();
+      await say(mirror());
+      await wait(400);
+      await nextQ(); // go to first role-specific extra question
+      return;
+    }
+  }
+
+  // -- Modules A/B/C/D --
+  if (['A','B','C','D'].includes(IV.phase)) {
+    const cur = moduleQuestions[qIdx];
+
+    // Follow-up on short answers
+    if (cur && isShort(text) && cur.followUps && cur.followUps.length > 0 && fuCount < 2) {
+      const fu = pickFU(cur.followUps);
+      if (fu) { fuCount++; await say(`${mirror()} ${fu}`); return; }
+    }
+
+    // Halfway reminder
+    if (IV.responseCount === 8) {
+      await say("Just a quick note \u2014 we\u2019re about halfway through. Remember, you may stop at any time. Let\u2019s continue.", 1200);
+      await wait(600);
+    }
+
+    // Echo key themes occasionally
+    let echo = '';
+    const kp=['long-term','future','responsibility','sustainability','legacy','generations','environment','obligation','community','climate','green'];
+    const found = kp.find(k => text.toLowerCase().includes(k));
+    if (found && text.split(/\s+/).length > 10 && Math.random() > 0.4) {
+      echo = ` You mentioned "${found}" \u2014 that\u2019s a key theme in our research.`;
+    }
+
+    await say(mirror() + echo);
+    await wait(400);
+    await nextQ();
+  }
+}
+
+function sendMessage() {
+  if(isTyping)return;
+  const t=inputEl.value.trim(); if(!t)return;
+  inputEl.value=''; inputEl.style.height='auto';
+  const qr=document.getElementById('quickReplies'); if(qr)qr.remove();
+  handle(t);
+}
+inputEl.addEventListener('input',()=>{inputEl.style.height='auto';inputEl.style.height=Math.min(inputEl.scrollHeight,120)+'px';});
+
+// Downloads
+function downloadTranscript(){downloadFile(JSON.stringify({interview_id:IV.id,start_time:IV.startTime.toISOString(),end_time:new Date().toISOString(),role:IV.role,gender:IV.gender,scores:IV.scores,transcript:IV.transcript},null,2),IV.id+'_transcript.json','application/json');}
+function downloadScores(){if(!IV.scores)return;const s=IV.scores;downloadFile('Interview_ID,Role,Gender,FLO_Score,ITA_Score,EnvPref_Score,Confidence,Notes\n'+[IV.id,IV.role,'"'+IV.gender+'"',s.FLO_Score,s.ITA_Score,s.EnvPref_Score,s.Confidence,'"'+s.Notes.replace(/"/g,'""')+'"'].join(',')+'\n',IV.id+'_scores.csv','text/csv');}
+function downloadFile(c,f,t){const b=new Blob([c],{type:t}),a=document.createElement('a');a.href=URL.createObjectURL(b);a.download=f;a.click();}
+function confirmRestart(){if(IV.transcript.length>2&&IV.phase!=='done'){if(!confirm('Start a new interview? Current progress will be lost.'))return;}location.reload();}
+
+// Boot
+updateProg();
+(async()=>{
+  await wait(600);
+  await say("Hello, and thank you for agreeing to participate in this study. I am an AI research assistant conducting interviews on behalf of an academic research team.\n\n**Purpose:** We are collecting qualitative data to understand how people\u2019s forward-looking perspectives influence their attitudes toward environmental sustainability.\n\n**Duration:** This interview will take approximately 15\u201320 minutes.\n\n**Voluntary Participation:** Your participation is entirely voluntary. You may skip any question or stop at any time without penalty.\n\n**Confidentiality:** All responses will be anonymized and used solely for academic research. No personally identifiable information will be disclosed.\n\n**Recording:** This conversation will be recorded as text for analysis.\n\nDo you consent to proceed?", 1800);
+  addQR(['Yes, I consent','No, I do not consent']);
+})();
+</script>
+</body>
+</html>
